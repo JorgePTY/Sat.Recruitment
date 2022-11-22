@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
-
+using Sat.Recruitment.Api.Entities;
+using Sat.Recruitment.Api.Repositories;
+using Sat.Recruitment.Api.Utils;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -29,16 +30,13 @@ namespace Sat.Recruitment.Api.Controllers
         public async Task<Result> CreateUser(string name, string email, string address, string phone, string userType, string money)
         {
             var errors = "";
-
+            Result mResult = new Result() { IsSuccess = false, Errors = "" };
             ValidateErrors(name, email, address, phone, ref errors);
 
             if (errors != null && errors != "")
-                return new Result()
-                {
-                    IsSuccess = false,
-                    Errors = errors
-                };
+                return await Task.FromResult(mResult);
 
+       
             var newUser = new User
             {
                 Name = name,
@@ -48,7 +46,6 @@ namespace Sat.Recruitment.Api.Controllers
                 UserType = userType,
                 Money = decimal.Parse(money)
             };
-
             if (newUser.UserType == "Normal")
             {
                 if (decimal.Parse(money) > 100)
@@ -87,90 +84,25 @@ namespace Sat.Recruitment.Api.Controllers
             }
 
 
-            var reader = ReadUsersFromFile();
+
 
             //Normalize email
-            var aux = newUser.Email.Split(new char[] { '@' }, StringSplitOptions.RemoveEmptyEntries);
-
-            var atIndex = aux[0].IndexOf("+", StringComparison.Ordinal);
-
-            aux[0] = atIndex < 0 ? aux[0].Replace(".", "") : aux[0].Replace(".", "").Remove(atIndex);
-
-            newUser.Email = string.Join("@", new string[] { aux[0], aux[1] });
-
-            while (reader.Peek() >= 0)
+            newUser.Email = NormaliceEmail.Normalice(newUser.Email); 
+   
+            List<User> _users = (List<User>)await (new UserRepository()).LoadUsersAsync();
+            var isDuplicated = false;
+            foreach (var user in _users)
             {
-                var line = reader.ReadLineAsync().Result;
-                var user = new User
-                {
-                    Name = line.Split(',')[0].ToString(),
-                    Email = line.Split(',')[1].ToString(),
-                    Phone = line.Split(',')[2].ToString(),
-                    Address = line.Split(',')[3].ToString(),
-                    UserType = line.Split(',')[4].ToString(),
-                    Money = decimal.Parse(line.Split(',')[5].ToString()),
-                };
-                _users.Add(user);
+                isDuplicated = (user.Email == newUser.Email || user.Phone == newUser.Phone) || (user.Name == newUser.Name && user.Address == newUser.Address);
             }
-            reader.Close();
-            try
-            {
-                var isDuplicated = false;
-                foreach (var user in _users)
-                {
-                    if (user.Email == newUser.Email
-                        ||
-                        user.Phone == newUser.Phone)
-                    {
-                        isDuplicated = true;
-                    }
-                    else if (user.Name == newUser.Name)
-                    {
-                        if (user.Address == newUser.Address)
-                        {
-                            isDuplicated = true;
-                            throw new Exception("User is duplicated");
-                        }
-
-                    }
-                }
-
-                if (!isDuplicated)
-                {
-                    Debug.WriteLine("User Created");
-
-                    return new Result()
-                    {
-                        IsSuccess = true,
-                        Errors = "User Created"
-                    };
-                }
-                else
-                {
-                    Debug.WriteLine("The user is duplicated");
-
-                    return new Result()
-                    {
-                        IsSuccess = false,
-                        Errors = "The user is duplicated"
-                    };
-                }
-            }
-            catch
-            {
-                Debug.WriteLine("The user is duplicated");
-                return new Result()
-                {
-                    IsSuccess = false,
-                    Errors = "The user is duplicated"
-                };
-            }
-
-            return new Result()
-            {
-                IsSuccess = true,
-                Errors = "User Created"
-            };
+            
+            errors = isDuplicated ? "The user is duplicated" : "User Created";
+            Debug.WriteLine(errors);
+            mResult.IsSuccess = !isDuplicated;
+            mResult.Errors = errors;           
+                        
+            return await Task.FromResult(mResult);
+            
         }
 
         //Validate errors
@@ -190,13 +122,5 @@ namespace Sat.Recruitment.Api.Controllers
                 errors = errors + " The phone is required";
         }
     }
-    public class User
-    {
-        public string Name { get; set; }
-        public string Email { get; set; }
-        public string Address { get; set; }
-        public string Phone { get; set; }
-        public string UserType { get; set; }
-        public decimal Money { get; set; }
-    }
+    
 }
